@@ -51,27 +51,43 @@ export default function StudentsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // Fake API calls
-      await fetch('/api/users', { method: 'POST', body: JSON.stringify(formData) }).catch(()=>null);
-      await fetch('/api/enrollments', { method: 'POST', body: JSON.stringify(formData) }).catch(()=>null);
+      const res = await fetch('/api/users', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, role: 'student' }) 
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || 'Failed to create user in database');
+      }
+      
+      const createdUser = await res.json();
+      
+      // Attempt enrollment but don't fail user creation if it fails (since we don't have real packageIds wired up yet)
+      await fetch('/api/enrollments', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentId: createdUser._id, packageId: formData.package }) 
+      }).catch(console.error);
       
       const newStudent = {
-        id: Date.now().toString(),
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
+        id: createdUser._id,
+        name: createdUser.name,
+        email: createdUser.email,
+        phone: createdUser.phone,
         status: 'active',
         package: formData.package === 'full' ? 'Full Course' : formData.package === 'basic' ? 'Basic Course' : 'Refresher',
         sessionsStr: '0/' + (formData.package === 'full' ? '10' : formData.package === 'basic' ? '5' : '3'),
       };
       
       setStudents(prev => [newStudent, ...prev]);
-      
-      toast.success('Student created and enrolled successfully!');
+      toast.success('Student created successfully!');
       setIsModalOpen(false);
       setFormData({ name: '', email: '', phone: '', password: '', package: 'full' }); // Reset form
     } catch (err) {
-      toast.error('Failed to create student');
+      console.error(err);
+      toast.error(err.message || 'Failed to create student');
     } finally {
       setIsSubmitting(false);
     }

@@ -51,7 +51,7 @@ export async function POST(request) {
       phone,
       password: hashedPassword,
       role,
-      school_id: schoolId,
+      school_id: schoolId || auth.session.user.schoolId,
       avatar,
       is_active: true
     }).select('id, name, email, phone, role, school_id, avatar, is_active, created_at, updated_at').single();
