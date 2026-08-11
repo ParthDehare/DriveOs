@@ -13,7 +13,7 @@ export async function GET(request) {
   const to = searchParams.get('to');
 
   try {
-    let query = supabaseAdmin.from('sessions').select('*, instructorId:instructor_id(id, name), vehicleId:vehicle_id(id, make, model, license_plate), enrollmentId:enrollment_id(*)');
+    let query = supabaseAdmin.from('sessions').select('*, instructorId:users!instructor_id(id, name), vehicleId:vehicles!vehicle_id(id, make, model, license_plate), enrollmentId:enrollments!enrollment_id(*)');
     
     if (userSession.user.role === 'admin') {
       query = query.eq('school_id', userSession.user.schoolId);

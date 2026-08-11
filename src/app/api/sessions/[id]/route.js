@@ -9,7 +9,7 @@ export async function GET(request, { params }) {
 
   try {
     const { data: session, error } = await supabaseAdmin.from('sessions')
-      .select('*, instructorId:instructor_id(id, name), vehicleId:vehicle_id(id, make, model, license_plate), enrollmentId:enrollment_id(*)')
+      .select('*, instructorId:users!instructor_id(id, name), vehicleId:vehicles!vehicle_id(id, make, model, license_plate), enrollmentId:enrollments!enrollment_id(*)')
       .eq('id', params.id).single();
     
     if (error || !session) return NextResponse.json({ message: "Session not found" }, { status: 404 });

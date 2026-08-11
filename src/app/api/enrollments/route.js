@@ -7,7 +7,7 @@ export async function GET(request) {
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   try {
-    let query = supabaseAdmin.from('enrollments').select('*, studentId:student_id(*), packageId:package_id(*)');
+    let query = supabaseAdmin.from('enrollments').select('*, studentId:users!student_id(*), packageId:packages!package_id(*)');
     if (session.user.role === 'student') {
       query = query.eq('student_id', session.user.id);
     } else if (session.user.role === 'admin') {

@@ -25,9 +25,9 @@ export async function GET(request, { params }) {
       .from('payments')
       .select(`
         *,
-        enrollmentId:enrollment_id (
+        enrollmentId:enrollments!enrollment_id (
           *,
-          studentId:student_id (
+          studentId:users!student_id (
             name,
             email
           )

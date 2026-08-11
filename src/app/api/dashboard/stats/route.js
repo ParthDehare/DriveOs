@@ -81,8 +81,8 @@ export async function GET(request) {
     const { data: recentEnrollmentsData } = await withSchool(supabaseAdmin.from('enrollments')
       .select(`
         *,
-        studentId:student_id (name, email),
-        packageId:package_id (name)
+        studentId:users!student_id (name, email),
+        packageId:packages!package_id (name)
       `)
       .order('created_at', { ascending: false })
       .limit(5));

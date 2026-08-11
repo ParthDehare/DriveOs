@@ -8,7 +8,7 @@ export async function GET(request, { params }) {
 
   try {
     const { data: enrollment, error } = await supabaseAdmin.from('enrollments')
-      .select('*, studentId:student_id(*), packageId:package_id(*)')
+      .select('*, studentId:users!student_id(*), packageId:packages!package_id(*)')
       .eq('id', params.id).single();
       
     if (error || !enrollment) return NextResponse.json({ message: "Enrollment not found" }, { status: 404 });
