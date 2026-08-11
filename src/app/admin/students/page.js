@@ -10,11 +10,12 @@ import { useToast } from '../../../components/Toast';
 
 export default function StudentsPage() {
   const [students, setStudents] = useState([]);
+  const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', package: 'full' });
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', packageId: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const toast = useToast();
@@ -22,7 +23,23 @@ export default function StudentsPage() {
 
   useEffect(() => {
     fetchStudents();
+    fetchPackages();
   }, []);
+
+  const fetchPackages = async () => {
+    try {
+      const res = await fetch('/api/packages');
+      if (res.ok) {
+        const data = await res.json();
+        setPackages(data);
+        if (data.length > 0) {
+          setFormData(prev => ({ ...prev, packageId: data[0]._id || data[0].id }));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load packages");
+    }
+  };
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -30,18 +47,34 @@ export default function StudentsPage() {
       const res = await fetch('/api/users?role=student');
       if (res.ok) {
         const data = await res.json();
-        setStudents(data);
-      } else {
-        // Mock
-        setStudents([
-          { id: '1', name: 'John Doe', email: 'john@example.com', phone: '555-0101', status: 'active', package: 'Full Course', sessionsStr: '4/10' },
-          { id: '2', name: 'Jane Smith', email: 'jane@example.com', phone: '555-0102', status: 'pending', package: 'Refresher', sessionsStr: '0/5' },
-        ]);
+        
+        // Let's also fetch enrollments to show their package
+        const enrollRes = await fetch('/api/enrollments').catch(()=>null);
+        let enrollments = [];
+        if (enrollRes?.ok) {
+          enrollments = await enrollRes.json();
+        }
+
+        const mappedData = data.map(user => {
+          const userEnrollments = enrollments.filter(e => e.studentId?._id === user._id || e.student_id === user._id);
+          const activeEnrollment = userEnrollments.find(e => e.status === 'active') || userEnrollments[0];
+          
+          return {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            status: user.isActive ? 'active' : 'inactive',
+            package: activeEnrollment?.packageId?.name || 'Not Enrolled',
+            sessionsStr: activeEnrollment ? `${activeEnrollment.sessionsCompleted || 0}/${activeEnrollment.packageId?.totalSessions || 0}` : '0/0',
+          };
+        });
+
+        setStudents(mappedData);
       }
     } catch (e) {
-      setStudents([
-        { id: '1', name: 'John Doe', email: 'john@example.com', phone: '555-0101', status: 'active', package: 'Full Course', sessionsStr: '4/10' },
-      ]);
+      console.error(e);
+      toast.error('Failed to load students');
     } finally {
       setLoading(false);
     }
@@ -54,7 +87,13 @@ export default function StudentsPage() {
       const res = await fetch('/api/users', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, role: 'student' }) 
+        body: JSON.stringify({ 
+          name: formData.name, 
+          email: formData.email, 
+          phone: formData.phone, 
+          password: formData.password, 
+          role: 'student' 
+        }) 
       });
       
       if (!res.ok) {
@@ -64,27 +103,24 @@ export default function StudentsPage() {
       
       const createdUser = await res.json();
       
-      // Attempt enrollment but don't fail user creation if it fails (since we don't have real packageIds wired up yet)
-      await fetch('/api/enrollments', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: createdUser._id, packageId: formData.package }) 
-      }).catch(console.error);
+      // Attempt enrollment using the real package UUID
+      if (formData.packageId) {
+        const enrollRes = await fetch('/api/enrollments', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentId: createdUser._id, packageId: formData.packageId }) 
+        });
+        
+        if (!enrollRes.ok) {
+          const errData = await enrollRes.json();
+          toast.error(errData.message || 'Student created, but enrollment failed');
+        }
+      }
       
-      const newStudent = {
-        id: createdUser._id,
-        name: createdUser.name,
-        email: createdUser.email,
-        phone: createdUser.phone,
-        status: 'active',
-        package: formData.package === 'full' ? 'Full Course' : formData.package === 'basic' ? 'Basic Course' : 'Refresher',
-        sessionsStr: '0/' + (formData.package === 'full' ? '10' : formData.package === 'basic' ? '5' : '3'),
-      };
-      
-      setStudents(prev => [newStudent, ...prev]);
-      toast.success('Student created successfully!');
+      toast.success('Student created and enrolled successfully!');
       setIsModalOpen(false);
-      setFormData({ name: '', email: '', phone: '', password: '', package: 'full' }); // Reset form
+      setFormData(prev => ({ name: '', email: '', phone: '', password: '', packageId: packages.length > 0 ? (packages[0]._id || packages[0].id) : '' })); // Reset form
+      fetchStudents(); // Refresh list
     } catch (err) {
       console.error(err);
       toast.error(err.message || 'Failed to create student');
@@ -156,10 +192,13 @@ export default function StudentsPage() {
           </div>
           <div className="input-group">
             <label className="input-label">Select Package</label>
-            <select className="select" value={formData.package} onChange={e => setFormData({...formData, package: e.target.value})}>
-              <option value="full">Full Course (10 Sessions)</option>
-              <option value="basic">Basic Course (5 Sessions)</option>
-              <option value="refresher">Refresher (3 Sessions)</option>
+            <select className="select" required value={formData.packageId} onChange={e => setFormData({...formData, packageId: e.target.value})}>
+              <option value="">Select a package...</option>
+              {packages.map(pkg => (
+                <option key={pkg._id || pkg.id} value={pkg._id || pkg.id}>
+                  {pkg.name} ({pkg.totalSessions || pkg.total_sessions} Sessions)
+                </option>
+              ))}
             </select>
           </div>
           
