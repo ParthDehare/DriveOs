@@ -145,7 +145,7 @@ export default function SchedulePage() {
             </select>
           </div>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+          <div className="grid-2">
             <div className="input-group">
               <label className="input-label">Date</label>
               <input type="date" required className="input" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
@@ -156,7 +156,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+          <div className="grid-2">
             <div className="input-group">
               <label className="input-label">Instructor</label>
               <select className="select" required value={formData.instructorId} onChange={e => setFormData({...formData, instructorId: e.target.value})}>

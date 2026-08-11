@@ -110,19 +110,14 @@ export default function DashboardPage() {
       <Topbar title="Dashboard Overview" />
       
       <div style={{ padding: 'var(--space-md) 0' }}>
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-          gap: 'var(--space-lg)',
-          marginBottom: 'var(--space-xl)'
-        }}>
+        <div className="grid-4" style={{ marginBottom: 'var(--space-xl)' }}>
           <StatCard title="Total Students" value={loading ? '-' : stats.totalStudents} icon="👨‍🎓" trend={{ value: 12, isUp: true }} color="indigo" />
           <StatCard title="Active Instructors" value={loading ? '-' : stats.activeInstructors} icon="👨‍🏫" color="blue" />
           <StatCard title="Fleet Size" value={loading ? '-' : stats.fleetSize} icon="🚗" color="green" />
           <StatCard title="Today's Sessions" value={loading ? '-' : stats.todaySessions} icon="📅" color="amber" />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-lg)' }}>
+        <div className="grid-2">
           <div>
             <h3 style={{ marginBottom: 'var(--space-md)', fontSize: '1.2rem' }}>Recent Enrollments</h3>
             <DataTable columns={enrollmentCols} data={recentEnrollments} loading={loading} emptyMessage="No recent enrollments" />

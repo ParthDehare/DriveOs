@@ -141,7 +141,7 @@ export default function SessionDetail({ params }) {
               </div>
             </div>
             
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+            <div className="grid-2">
               <div>
                 <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem' }}>Time</p>
                 <p style={{ margin: 0, fontWeight: '500' }}>{session.time}</p>

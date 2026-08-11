@@ -93,7 +93,7 @@ export default function VehiclesPage() {
             <label className="input-label">License Plate</label>
             <input required type="text" className="input" value={formData.plate} onChange={e => setFormData({...formData, plate: e.target.value})} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-md)' }}>
+          <div className="grid-2">
             <div className="input-group">
               <label className="input-label">Make</label>
               <input required type="text" className="input" value={formData.make} onChange={e => setFormData({...formData, make: e.target.value})} />

@@ -44,12 +44,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-        gap: 'var(--space-md)',
-        marginBottom: 'var(--space-xl)'
-      }}>
+      <div className="grid-4" style={{ marginBottom: 'var(--space-xl)' }}>
         <StatCard 
           title="Monthly Revenue" 
           value={`₹${(safeStats.monthlyRevenue || 0).toLocaleString()}`} 

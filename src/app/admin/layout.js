@@ -1,17 +1,29 @@
 import Sidebar from '../../components/Sidebar';
+import BottomNav from '../../components/BottomNav';
 import { ToastProvider } from '../../components/Toast';
 
 export default function AdminLayout({ children }) {
   return (
     <ToastProvider>
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
-        <Sidebar />
-        <main style={{ flex: 1, marginLeft: '260px', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: 'var(--space-xl)', flex: 1 }}>
+      <div className="admin-layout mobile-container">
+        <div className="sidebar-container">
+          <Sidebar />
+        </div>
+        <main className="admin-main">
+          <div className="admin-content">
             {children}
           </div>
         </main>
+        
+        <div className="mobile-only-nav" style={{ display: 'none' }}>
+          <BottomNav />
+        </div>
       </div>
+      <style dangerouslySetInnerHTML={{__html: `
+        @media (max-width: 1024px) {
+          .mobile-only-nav { display: block !important; }
+        }
+      `}} />
     </ToastProvider>
   );
 }
