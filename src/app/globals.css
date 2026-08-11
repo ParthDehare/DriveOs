@@ -211,7 +211,7 @@ h1, h2, h3, h4, h5, h6 { font-weight: 700; letter-spacing: -0.02em; line-height:
   outline: none;
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px var(--border-glow);
-  background-color: rgba(17, 24, 39, 0.95);
+  background-color: var(--bg-secondary);
 }
 
 /* Badges */
