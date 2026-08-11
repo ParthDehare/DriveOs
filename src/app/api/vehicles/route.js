@@ -1,31 +1,47 @@
-import connectDB from "@/lib/mongodb";
-import Vehicle from "@/models/Vehicle";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
+const mapVehicle = (vehicle) => {
+  if (!vehicle) return vehicle;
+  const { id, school_id, is_active, ...rest } = vehicle;
+  return {
+    ...rest,
+    _id: id,
+    schoolId: school_id,
+    isActive: is_active
+  };
+};
+
 export async function GET(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 
   try {
-    const vehicles = await Vehicle.find({ schoolId: auth.session.user.schoolId, isActive: true });
-    return NextResponse.json(vehicles);
+    const { data, error } = await supabaseAdmin.from('vehicles').select('*').eq('school_id', auth.session.user.schoolId).eq('is_active', true);
+    if (error) throw error;
+    return NextResponse.json(data.map(mapVehicle));
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 
   try {
     const body = await request.json();
-    const vehicle = new Vehicle({ ...body, schoolId: auth.session.user.schoolId });
-    await vehicle.save();
-    return NextResponse.json(vehicle, { status: 201 });
+    const insertData = { ...body, school_id: auth.session.user.schoolId };
+    
+    if (insertData.isActive !== undefined) {
+      insertData.is_active = insertData.isActive;
+      delete insertData.isActive;
+    }
+
+    const { data, error } = await supabaseAdmin.from('vehicles').insert(insertData).select().single();
+    if (error) throw error;
+    return NextResponse.json(mapVehicle(data), { status: 201 });
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }

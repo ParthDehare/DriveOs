@@ -10,11 +10,11 @@
     "seed": "node src/scripts/seed.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "leaflet": "^1.9.4",
     "leaflet-defaulticon-compatibility": "^0.1.2",
-    "mongoose": "^9.9.1",
     "next": "16.3.0",
     "next-auth": "^4.24.15",
     "pusher": "^5.3.4",

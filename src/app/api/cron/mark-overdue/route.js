@@ -1,4 +1,3 @@
-import connectDB from "@/lib/mongodb";
 import { markOverduePayments } from "@/services/payments";
 import { NextResponse } from "next/server";
 
@@ -11,7 +10,6 @@ export async function GET(request) {
   }
 
   try {
-    await connectDB();
     const count = await markOverduePayments();
     return NextResponse.json({ message: 'Overdue payments marked successfully', count });
   } catch (error) {

@@ -1,12 +1,10 @@
-import connectDB from "@/lib/mongodb";
-import Session from "@/models/Session";
+import { supabaseAdmin } from '@/lib/supabase';
 import { createSession } from "@/services/scheduling";
 import { requireRole, getServerSession } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { checkStudentPaymentStatus } from "@/services/payments";
 
 export async function GET(request) {
-  await connectDB();
   const userSession = await getServerSession();
   if (!userSession) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
@@ -14,39 +12,46 @@ export async function GET(request) {
   const from = searchParams.get('from');
   const to = searchParams.get('to');
 
-  let query = {};
-  
-  if (userSession.user.role === 'admin') {
-    query.schoolId = userSession.user.schoolId;
-  } else if (userSession.user.role === 'instructor') {
-    query.instructorId = userSession.user.id;
-  } else if (userSession.user.role === 'student') {
-    // We would need to find enrollments for the student first, or lookup by enrollmentId
-    // Simplified for now, in a real app we'd join or use multiple queries
-    const enrollments = await require('@/models/Enrollment').default.find({ studentId: userSession.user.id });
-    const enrollmentIds = enrollments.map(e => e._id);
-    query.enrollmentId = { $in: enrollmentIds };
-  }
-
-  if (from || to) {
-    query.scheduledAt = {};
-    if (from) query.scheduledAt.$gte = new Date(from);
-    if (to) query.scheduledAt.$lte = new Date(to);
-  }
-
   try {
-    const sessions = await Session.find(query)
-      .populate('instructorId', 'name')
-      .populate('vehicleId', 'make model licensePlate')
-      .populate('enrollmentId');
-    return NextResponse.json(sessions);
+    let query = supabaseAdmin.from('sessions').select('*, instructorId:instructor_id(id, name), vehicleId:vehicle_id(id, make, model, license_plate), enrollmentId:enrollment_id(*)');
+    
+    if (userSession.user.role === 'admin') {
+      query = query.eq('school_id', userSession.user.schoolId);
+    } else if (userSession.user.role === 'instructor') {
+      query = query.eq('instructor_id', userSession.user.id);
+    } else if (userSession.user.role === 'student') {
+      const { data: enrollments } = await supabaseAdmin.from('enrollments').select('id').eq('student_id', userSession.user.id);
+      const enrollmentIds = enrollments ? enrollments.map(e => e.id) : [];
+      if (enrollmentIds.length > 0) {
+        query = query.in('enrollment_id', enrollmentIds);
+      } else {
+        return NextResponse.json([]);
+      }
+    }
+
+    if (from) query = query.gte('scheduled_at', new Date(from).toISOString());
+    if (to) query = query.lte('scheduled_at', new Date(to).toISOString());
+
+    const { data: sessions, error } = await query;
+    if (error) throw error;
+
+    const formattedSessions = sessions.map(s => ({
+      ...s,
+      _id: s.id,
+      schoolId: s.school_id,
+      instructorId: s.instructorId ? { ...s.instructorId, _id: s.instructorId.id } : null,
+      vehicleId: s.vehicleId ? { ...s.vehicleId, _id: s.vehicleId.id, licensePlate: s.vehicleId.license_plate } : null,
+      enrollmentId: s.enrollmentId ? { ...s.enrollmentId, _id: s.enrollmentId.id } : null,
+      scheduledAt: s.scheduled_at
+    }));
+
+    return NextResponse.json(formattedSessions);
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 

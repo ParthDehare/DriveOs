@@ -1,36 +1,48 @@
-import connectDB from "@/lib/mongodb";
-import Enrollment from "@/models/Enrollment";
-import User from "@/models/User";
-import Vehicle from "@/models/Vehicle";
-import Session from "@/models/Session";
-import Payment from "@/models/Payment";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
+function formatToCamelCase(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(v => formatToCamelCase(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      const finalKey = camelKey === 'id' ? '_id' : camelKey;
+      result[finalKey] = formatToCamelCase(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
+}
+
 export async function GET(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
   
   const schoolId = auth.session.user.schoolId;
 
   try {
-    const totalStudents = await Enrollment.countDocuments({ schoolId, status: 'active' });
-    const totalInstructors = await User.countDocuments({ schoolId, role: 'instructor', isActive: true });
-    const totalVehicles = await Vehicle.countDocuments({ schoolId, isActive: true });
+    const [{ count: totalStudents }, { count: totalInstructors }, { count: totalVehicles }] = await Promise.all([
+      supabaseAdmin.from('enrollments').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active'),
+      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'instructor').eq('is_active', true),
+      supabaseAdmin.from('vehicles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true)
+    ]);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const todaySessions = await Session.countDocuments({
-      schoolId,
-      scheduledAt: { $gte: today, $lt: tomorrow },
-      status: { $nin: ['cancelled'] }
-    });
+    const { count: todaySessions } = await supabaseAdmin.from('sessions')
+      .select('*', { count: 'exact', head: true })
+      .eq('school_id', schoolId)
+      .gte('scheduled_at', today.toISOString())
+      .lt('scheduled_at', tomorrow.toISOString())
+      .neq('status', 'cancelled');
 
-    const allPayments = await Payment.find({ schoolId });
+    const { data: allPaymentsData } = await supabaseAdmin.from('payments').select('*').eq('school_id', schoolId);
+    const allPayments = formatToCamelCase(allPaymentsData || []);
     
     let pendingPayments = 0;
     let overduePayments = 0;
@@ -64,11 +76,17 @@ export async function GET(request) {
 
     const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
-    const recentEnrollments = await Enrollment.find({ schoolId })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate('studentId', 'name email')
-      .populate('packageId', 'name');
+    const { data: recentEnrollmentsData } = await supabaseAdmin.from('enrollments')
+      .select(`
+        *,
+        studentId:student_id (name, email),
+        packageId:package_id (name)
+      `)
+      .eq('school_id', schoolId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    const recentEnrollments = formatToCamelCase(recentEnrollmentsData || []);
 
     return NextResponse.json({
       totalStudents,

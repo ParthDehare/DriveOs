@@ -1,10 +1,19 @@
-import connectDB from "@/lib/mongodb";
-import User from "@/models/User";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireRole, getServerSession } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
+const mapUser = (user) => {
+  if (!user) return user;
+  const { id, school_id, is_active, ...rest } = user;
+  return {
+    ...rest,
+    _id: id,
+    schoolId: school_id,
+    isActive: is_active
+  };
+};
+
 export async function GET(request, { params }) {
-  await connectDB();
   const session = await getServerSession();
   
   if (!session) {
@@ -16,37 +25,45 @@ export async function GET(request, { params }) {
   }
 
   try {
-    const user = await User.findById(params.id).select('-password');
-    if (!user) return NextResponse.json({ message: "User not found" }, { status: 404 });
-    return NextResponse.json(user);
+    const { data, error } = await supabaseAdmin.from('users').select('id, name, email, phone, role, school_id, avatar, is_active, created_at, updated_at').eq('id', params.id).single();
+    if (error || !data) return NextResponse.json({ message: "User not found" }, { status: 404 });
+    return NextResponse.json(mapUser(data));
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function PUT(request, { params }) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 
   try {
     const body = await request.json();
-    const user = await User.findByIdAndUpdate(params.id, body, { new: true }).select('-password');
-    if (!user) return NextResponse.json({ message: "User not found" }, { status: 404 });
-    return NextResponse.json(user);
+    const updateData = { ...body };
+    if (updateData.schoolId !== undefined) {
+      updateData.school_id = updateData.schoolId;
+      delete updateData.schoolId;
+    }
+    if (updateData.isActive !== undefined) {
+      updateData.is_active = updateData.isActive;
+      delete updateData.isActive;
+    }
+
+    const { data, error } = await supabaseAdmin.from('users').update(updateData).eq('id', params.id).select('id, name, email, phone, role, school_id, avatar, is_active, created_at, updated_at').single();
+    if (error || !data) return NextResponse.json({ message: "User not found" }, { status: 404 });
+    return NextResponse.json(mapUser(data));
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function DELETE(request, { params }) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 
   try {
-    const user = await User.findByIdAndUpdate(params.id, { isActive: false }, { new: true }).select('-password');
-    if (!user) return NextResponse.json({ message: "User not found" }, { status: 404 });
+    const { data, error } = await supabaseAdmin.from('users').update({ is_active: false }).eq('id', params.id).select('id, name, email, phone, role, school_id, avatar, is_active, created_at, updated_at').single();
+    if (error || !data) return NextResponse.json({ message: "User not found" }, { status: 404 });
     return NextResponse.json({ message: "User deactivated successfully" });
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });

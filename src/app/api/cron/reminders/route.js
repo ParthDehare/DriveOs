@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
-import Payment from '@/models/Payment';
-import Session from '@/models/Session';
-import LicenseInfo from '@/models/LicenseInfo';
-import Enrollment from '@/models/Enrollment';
+import { supabaseAdmin } from '@/lib/supabase';
 import { sendNotification } from '@/services/notifications';
+
+function formatToCamelCase(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(v => formatToCamelCase(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      const finalKey = camelKey === 'id' ? '_id' : camelKey;
+      result[finalKey] = formatToCamelCase(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
+}
 
 export async function GET(request) {
   try {
@@ -13,24 +23,25 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await connectDB();
-
     const now = new Date();
     
     // A. Payment Reminders (due between now and 3 days from now)
     const threeDaysFromNow = new Date();
     threeDaysFromNow.setDate(now.getDate() + 3);
     
-    const pendingPayments = await Payment.find({
-      status: 'pending',
-      dueDate: { $gte: now, $lte: threeDaysFromNow }
-    });
+    const { data: pendingPaymentsData } = await supabaseAdmin.from('payments')
+      .select('*')
+      .eq('status', 'pending')
+      .gte('due_date', now.toISOString())
+      .lte('due_date', threeDaysFromNow.toISOString());
+
+    const pendingPayments = formatToCamelCase(pendingPaymentsData || []);
 
     let paymentCount = 0;
     for (const payment of pendingPayments) {
-      // Find the enrollment -> studentId
-      const enrollment = await Enrollment.findById(payment.enrollmentId || payment.enrollment);
-      const studentId = enrollment?.studentId || payment.studentId;
+      const enrollmentId = payment.enrollmentId || payment.enrollment;
+      const { data: enrollment } = await supabaseAdmin.from('enrollments').select('student_id').eq('id', enrollmentId).single();
+      const studentId = enrollment?.student_id || payment.studentId;
       if (studentId) {
         await sendNotification(studentId, 'Your payment is due soon...');
         paymentCount++;
@@ -45,9 +56,12 @@ export async function GET(request) {
     const endOfTomorrow = new Date(startOfTomorrow);
     endOfTomorrow.setHours(23, 59, 59, 999);
 
-    const upcomingSessions = await Session.find({
-      scheduledAt: { $gte: startOfTomorrow, $lte: endOfTomorrow }
-    });
+    const { data: upcomingSessionsData } = await supabaseAdmin.from('sessions')
+      .select('*')
+      .gte('scheduled_at', startOfTomorrow.toISOString())
+      .lte('scheduled_at', endOfTomorrow.toISOString());
+
+    const upcomingSessions = formatToCamelCase(upcomingSessionsData || []);
 
     let classCount = 0;
     for (const session of upcomingSessions) {
@@ -64,9 +78,12 @@ export async function GET(request) {
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
-    const expiringLicenses = await LicenseInfo.find({
-      llExpiryDate: { $gte: now, $lte: thirtyDaysFromNow }
-    });
+    const { data: expiringLicensesData } = await supabaseAdmin.from('license_info')
+      .select('*')
+      .gte('ll_expiry_date', now.toISOString())
+      .lte('ll_expiry_date', thirtyDaysFromNow.toISOString());
+
+    const expiringLicenses = formatToCamelCase(expiringLicensesData || []);
 
     let licenseCount = 0;
     for (const license of expiringLicenses) {

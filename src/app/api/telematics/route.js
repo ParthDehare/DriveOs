@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/auth";
-import connectDB from "@/lib/mongodb";
-import TripLog from "@/models/TripLog";
+import { supabaseAdmin } from '@/lib/supabase';
 import { pusherServer } from "@/lib/pusher";
 
 export async function POST(request) {
@@ -18,8 +17,6 @@ export async function POST(request) {
     const body = await request.json();
     const { sessionId, lat, lng, speed, timestamp, isEnded, routeHistory } = body;
 
-    await connectDB();
-
     if (!isEnded) {
       await pusherServer.trigger("map-channel", "location-update", {
         sessionId,
@@ -34,20 +31,31 @@ export async function POST(request) {
     } else {
       const distanceKm = 0; // Rough estimate or 0 for now
 
-      const tripLog = await TripLog.create({
-        sessionId,
-        instructorId: session.user.id,
+      const { data: tripLog, error } = await supabaseAdmin.from('trip_logs').insert({
+        session_id: sessionId,
+        instructor_id: session.user.id,
         coordinates: routeHistory || [],
-        distanceKm,
-        endedAt: new Date(),
-      });
+        distance_km: distanceKm,
+        ended_at: new Date().toISOString()
+      }).select().single();
+      
+      if (error) throw error;
 
       await pusherServer.trigger("map-channel", "trip-ended", {
         sessionId,
         instructorId: session.user.id,
       });
+      
+      const formattedTripLog = {
+        ...tripLog,
+        _id: tripLog.id,
+        sessionId: tripLog.session_id,
+        instructorId: tripLog.instructor_id,
+        distanceKm: tripLog.distance_km,
+        endedAt: tripLog.ended_at
+      };
 
-      return NextResponse.json(tripLog, { status: 201 });
+      return NextResponse.json(formattedTripLog, { status: 201 });
     }
   } catch (error) {
     console.error("Telematics API Error:", error);

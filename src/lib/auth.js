@@ -1,9 +1,8 @@
 import CredentialsProvider from "next-auth/providers/credentials";
-import connectDB from "@/lib/mongodb";
-import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import { getServerSession as getNextAuthServerSession } from "next-auth";
 import { NextResponse } from "next/server";
+import { supabaseAdmin } from "./supabase";
 
 export const authOptions = {
   providers: [
@@ -16,30 +15,30 @@ export const authOptions = {
       async authorize(credentials) {
         const inputEmail = (credentials?.email || '').trim();
         const inputPassword = (credentials?.password || '').trim();
-        console.log(`authorize() called with: '${inputEmail}', password length: ${inputPassword.length}`);
         
-        await connectDB();
-        
-        const user = await User.findOne({ email: inputEmail, isActive: true });
-        console.log("User found:", user ? user.email : "none");
-        
-        if (!user) {
+        const { data: user, error } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .eq('email', inputEmail)
+          .eq('is_active', true)
+          .single();
+          
+        if (error || !user) {
           throw new Error("No user found with the email");
         }
         
         const isPasswordMatch = await bcrypt.compare(inputPassword, user.password);
-        console.log("Password match:", isPasswordMatch);
         
         if (!isPasswordMatch) {
           throw new Error("Invalid password");
         }
         
         return {
-          id: user._id.toString(),
+          id: user.id,
           name: user.name,
           email: user.email,
           role: user.role,
-          schoolId: user.schoolId ? user.schoolId.toString() : null
+          schoolId: user.school_id
         };
       }
     })

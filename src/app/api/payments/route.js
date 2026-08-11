@@ -1,11 +1,23 @@
-import connectDB from "@/lib/mongodb";
-import Payment from "@/models/Payment";
+import { supabaseAdmin } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { recordManualPayment, markOverduePayments } from "@/services/payments";
 
+function formatToCamelCase(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(v => formatToCamelCase(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      const finalKey = camelKey === 'id' ? '_id' : camelKey;
+      result[finalKey] = formatToCamelCase(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
+}
+
 export async function GET(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 
@@ -13,26 +25,36 @@ export async function GET(request) {
   const status = searchParams.get('status');
   const enrollmentId = searchParams.get('enrollmentId');
 
-  const query = { schoolId: auth.session.user.schoolId };
-  if (status) query.status = status;
-  if (enrollmentId) query.enrollmentId = enrollmentId;
-
   try {
-    const payments = await Payment.find(query)
-      .populate({
-        path: 'enrollmentId',
-        populate: { path: 'studentId', select: 'name email' }
-      })
-      .sort({ dueDate: -1 });
+    let query = supabaseAdmin
+      .from('payments')
+      .select(`
+        *,
+        enrollmentId:enrollment_id (
+          *,
+          studentId:student_id (
+            name,
+            email
+          )
+        )
+      `)
+      .eq('school_id', auth.session.user.schoolId)
+      .order('due_date', { ascending: false });
 
-    return NextResponse.json(payments);
+    if (status) query = query.eq('status', status);
+    if (enrollmentId) query = query.eq('enrollment_id', enrollmentId);
+
+    const { data: payments, error } = await query;
+    
+    if (error) throw error;
+
+    return NextResponse.json(formatToCamelCase(payments));
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
 

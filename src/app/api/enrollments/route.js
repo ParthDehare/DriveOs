@@ -1,97 +1,104 @@
-import connectDB from "@/lib/mongodb";
-import Enrollment from "@/models/Enrollment";
-import Package from "@/models/Package";
-import InstallmentPlan from "@/models/InstallmentPlan";
-import Payment from "@/models/Payment";
+import { supabaseAdmin } from '@/lib/supabase';
 import { requireRole, getServerSession } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
 
 export async function GET(request) {
-  await connectDB();
   const session = await getServerSession();
   if (!session) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
   try {
-    let query = {};
+    let query = supabaseAdmin.from('enrollments').select('*, studentId:student_id(*), packageId:package_id(*)');
     if (session.user.role === 'student') {
-      query.studentId = session.user.id;
+      query = query.eq('student_id', session.user.id);
     } else if (session.user.role === 'admin') {
-      query.schoolId = session.user.schoolId;
+      query = query.eq('school_id', session.user.schoolId);
     } else {
       return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     }
 
-    const enrollments = await Enrollment.find(query).populate('studentId packageId');
-    return NextResponse.json(enrollments);
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const formattedData = data.map(item => ({
+      ...item,
+      _id: item.id,
+      studentId: item.studentId ? { ...item.studentId, _id: item.studentId.id } : null,
+      packageId: item.packageId ? { ...item.packageId, _id: item.packageId.id } : null,
+      schoolId: item.school_id,
+      startDate: item.start_date,
+    }));
+
+    return NextResponse.json(formattedData);
   } catch (error) {
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request) {
-  await connectDB();
   const auth = await requireRole(['admin']);
   if (auth.error) return auth.error;
-
-  const dbSession = await mongoose.startSession();
-  dbSession.startTransaction();
 
   try {
     const body = await request.json();
     const { studentId, packageId, startDate } = body;
     const schoolId = auth.session.user.schoolId;
 
-    const pkg = await Package.findById(packageId);
-    if (!pkg) throw new Error("Package not found");
+    const { data: pkg, error: pkgError } = await supabaseAdmin.from('packages').select('*').eq('id', packageId).single();
+    if (pkgError || !pkg) throw new Error("Package not found");
 
-    const enrollment = new Enrollment({
-      studentId,
-      packageId,
-      schoolId,
-      startDate: startDate || new Date()
-    });
+    const { data: enrollment, error: enrollmentError } = await supabaseAdmin.from('enrollments').insert({
+      student_id: studentId,
+      package_id: packageId,
+      school_id: schoolId,
+      start_date: startDate || new Date().toISOString()
+    }).select().single();
 
-    await enrollment.save({ session: dbSession });
+    if (enrollmentError) throw enrollmentError;
 
-    const installments = await InstallmentPlan.find({ packageId }).session(dbSession);
+    const { data: installments, error: instError } = await supabaseAdmin.from('installment_plans').select('*').eq('package_id', packageId);
+    if (instError) throw instError;
 
-    if (installments.length > 0) {
+    if (installments && installments.length > 0) {
       const paymentDocs = installments.map(inst => {
-        const dueDate = new Date(enrollment.startDate);
-        dueDate.setDate(dueDate.getDate() + inst.dueDaysAfterEnrollment);
+        const dueDate = new Date(enrollment.start_date);
+        dueDate.setDate(dueDate.getDate() + inst.due_days_after_enrollment);
 
         return {
-          enrollmentId: enrollment._id,
-          schoolId,
-          amount: (pkg.price * inst.percentageOfTotal) / 100,
-          dueDate,
+          enrollment_id: enrollment.id,
+          school_id: schoolId,
+          amount: (pkg.price * inst.percentage_of_total) / 100,
+          due_date: dueDate.toISOString(),
           status: 'pending',
-          trancheNumber: inst.trancheNumber
+          tranche_number: inst.tranche_number
         };
       });
 
-      await Payment.insertMany(paymentDocs, { session: dbSession });
+      const { error: payError } = await supabaseAdmin.from('payments').insert(paymentDocs);
+      if (payError) throw payError;
     } else {
       // Full payment upfront
-      const payment = new Payment({
-        enrollmentId: enrollment._id,
-        schoolId,
+      const { error: payError } = await supabaseAdmin.from('payments').insert({
+        enrollment_id: enrollment.id,
+        school_id: schoolId,
         amount: pkg.price,
-        dueDate: enrollment.startDate,
+        due_date: enrollment.start_date,
         status: 'pending',
-        trancheNumber: 1
+        tranche_number: 1
       });
-      await payment.save({ session: dbSession });
+      if (payError) throw payError;
     }
 
-    await dbSession.commitTransaction();
-    dbSession.endSession();
+    const formattedEnrollment = {
+      ...enrollment,
+      _id: enrollment.id,
+      studentId: enrollment.student_id,
+      packageId: enrollment.package_id,
+      schoolId: enrollment.school_id,
+      startDate: enrollment.start_date
+    };
 
-    return NextResponse.json(enrollment, { status: 201 });
+    return NextResponse.json(formattedEnrollment, { status: 201 });
   } catch (error) {
-    await dbSession.abortTransaction();
-    dbSession.endSession();
     return NextResponse.json({ message: error.message }, { status: 500 });
   }
 }
