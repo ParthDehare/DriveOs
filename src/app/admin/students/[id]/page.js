@@ -15,32 +15,65 @@ export default function StudentProfilePage({ params }) {
   const toast = useToast();
 
   useEffect(() => {
-    // Mocking fetch for specific student
-    setTimeout(() => {
-      setStudent({
-        id: resolvedParams.id,
-        name: 'John Doe',
-        email: 'john@example.com',
-        phone: '+1 555-0101',
-        status: 'active',
-        enrollment: {
-          package: 'Full Course',
-          progress: 40,
-          completedSessions: 4,
-          totalSessions: 10
-        },
-        sessions: [
-          { date: '2023-10-20', time: '10:00 AM', instructor: 'Sarah W.', vehicle: 'ABC-123', status: 'completed' },
-          { date: '2023-10-22', time: '14:00 PM', instructor: 'Mike R.', vehicle: 'XYZ-789', status: 'completed' },
-          { date: '2023-11-05', time: '09:00 AM', instructor: 'Mike R.', vehicle: 'ABC-123', status: 'scheduled' },
-        ],
-        payments: [
-          { tranche: 'Deposit', amount: '$200', due: '2023-10-01', status: 'paid' },
-          { tranche: 'Installment 1', amount: '$300', due: '2023-11-01', status: 'pending' },
-        ]
-      });
-      setLoading(false);
-    }, 800);
+    const fetchStudentData = async () => {
+      try {
+        const id = resolvedParams.id;
+        
+        // Fetch user data
+        const userRes = await fetch(`/api/users/${id}`);
+        if (!userRes.ok) throw new Error('User not found');
+        const userData = await userRes.json();
+        
+        // Fetch enrollments
+        const enrollRes = await fetch('/api/enrollments');
+        const enrollData = await enrollRes.json();
+        const studentEnrollment = enrollData.find(e => e.studentId?._id === id || e.student_id === id);
+        
+        // Fetch sessions
+        const sessionRes = await fetch('/api/sessions');
+        const sessionData = await sessionRes.json();
+        const studentSessions = sessionData.filter(s => s.enrollmentId?.studentId?._id === id || s.enrollmentId?.studentId === id || s.enrollment_id === studentEnrollment?._id);
+        
+        // Fetch payments
+        const paymentRes = await fetch('/api/payments');
+        const paymentData = await paymentRes.json();
+        const studentPayments = paymentData.filter(p => p.enrollmentId?.studentId?._id === id || p.enrollmentId?.studentId === id || p.enrollment_id === studentEnrollment?._id);
+
+        setStudent({
+          id: userData._id,
+          name: userData.name,
+          email: userData.email,
+          phone: userData.phone,
+          status: userData.isActive ? 'active' : 'inactive',
+          enrollment: studentEnrollment ? {
+            package: studentEnrollment.packageId?.name || 'Unknown Package',
+            progress: studentEnrollment.packageId ? (studentEnrollment.sessionsCompleted / studentEnrollment.packageId.totalSessions) * 100 : 0,
+            completedSessions: studentEnrollment.sessionsCompleted || 0,
+            totalSessions: studentEnrollment.packageId?.totalSessions || 0
+          } : null,
+          sessions: studentSessions.map(s => ({
+            date: new Date(s.scheduledAt || s.scheduled_at).toLocaleDateString(),
+            time: new Date(s.scheduledAt || s.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            instructor: s.instructorId?.name || 'Unknown',
+            vehicle: s.vehicleId?.licensePlate || s.vehicleId?.license_plate || 'Unknown',
+            status: s.status
+          })),
+          payments: studentPayments.map(p => ({
+            tranche: `Installment ${p.trancheNumber || p.tranche_number || 1}`,
+            amount: `$${p.amount}`,
+            due: new Date(p.dueDate || p.due_date).toLocaleDateString(),
+            status: p.status
+          }))
+        });
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to load student data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchStudentData();
   }, [resolvedParams.id]);
 
   if (loading) return <div>Loading profile...</div>;
@@ -94,11 +127,17 @@ export default function StudentProfilePage({ params }) {
         {activeTab === 'overview' && (
           <div className="card" style={{ padding: 'var(--space-lg)' }}>
             <h3>Enrollment Progress</h3>
-            <p>Package: {student.enrollment.package}</p>
-            <p>Sessions: {student.enrollment.completedSessions} / {student.enrollment.totalSessions}</p>
-            <div style={{ width: '100%', height: '8px', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', marginTop: 'var(--space-md)' }}>
-              <div style={{ width: `${student.enrollment.progress}%`, height: '100%', background: 'var(--success)' }}></div>
-            </div>
+            {student.enrollment ? (
+              <>
+                <p>Package: {student.enrollment.package}</p>
+                <p>Sessions: {student.enrollment.completedSessions} / {student.enrollment.totalSessions}</p>
+                <div style={{ width: '100%', height: '8px', background: 'var(--bg-input)', borderRadius: '4px', overflow: 'hidden', marginTop: 'var(--space-md)' }}>
+                  <div style={{ width: `${student.enrollment.progress}%`, height: '100%', background: 'var(--success)' }}></div>
+                </div>
+              </>
+            ) : (
+              <p>No active enrollment.</p>
+            )}
           </div>
         )}
 
