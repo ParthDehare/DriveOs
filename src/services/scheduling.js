@@ -1,26 +1,42 @@
-import Session from "@/models/Session";
-import Enrollment from "@/models/Enrollment";
-import Package from "@/models/Package";
+import { supabaseAdmin } from '@/lib/supabase';
+
+function formatToCamelCase(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(v => formatToCamelCase(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      const finalKey = camelKey === 'id' ? '_id' : camelKey;
+      result[finalKey] = formatToCamelCase(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
+}
 
 export async function checkAvailability(instructorId, vehicleId, enrollmentId, scheduledAt, duration) {
   const start = new Date(scheduledAt);
   const end = new Date(start.getTime() + duration * 60000);
 
-  const conflicts = await Session.find({
-    status: { $nin: ['cancelled'] },
-    $or: [
-      { instructorId },
-      { vehicleId },
-      { enrollmentId }
-    ],
-    $and: [
-      { scheduledAt: { $lt: end } },
-      { $expr: { $gt: [{ $add: ["$scheduledAt", { $multiply: ["$duration", 60000] }] }, start] } }
-    ]
+  // We need to fetch potential conflicts and check in JS because Supabase REST API 
+  // doesn't have an easy way to express: scheduledAt + duration > start
+  const { data: potentialConflicts, error } = await supabaseAdmin
+    .from('sessions')
+    .select('*')
+    .neq('status', 'cancelled')
+    .or(`instructor_id.eq.${instructorId},vehicle_id.eq.${vehicleId},enrollment_id.eq.${enrollmentId}`)
+    .lt('scheduled_at', end.toISOString());
+
+  if (error) throw error;
+
+  const conflicts = potentialConflicts.filter(session => {
+    const sessionStart = new Date(session.scheduled_at);
+    const sessionEnd = new Date(sessionStart.getTime() + session.duration * 60000);
+    return sessionEnd > start;
   });
 
   if (conflicts.length > 0) {
-    return { available: false, conflicts };
+    return { available: false, conflicts: formatToCamelCase(conflicts) };
   }
 
   return { available: true };
@@ -35,8 +51,13 @@ export async function createSession(data) {
     throw new Error('Time slot is not available due to conflicts.');
   }
 
-  const enrollment = await Enrollment.findById(enrollmentId).populate('packageId');
-  if (!enrollment) {
+  const { data: enrollment, error: enrollmentError } = await supabaseAdmin
+    .from('enrollments')
+    .select('*, packageId:packages!package_id(*)')
+    .eq('id', enrollmentId)
+    .single();
+
+  if (enrollmentError || !enrollment) {
     throw new Error('Enrollment not found');
   }
 
@@ -44,58 +65,76 @@ export async function createSession(data) {
     throw new Error('Enrollment is not active');
   }
 
-  if (enrollment.sessionsCompleted >= enrollment.packageId.totalSessions) {
+  if (enrollment.sessions_completed >= enrollment.packageId.total_sessions) {
     throw new Error('Student has completed all sessions for this package');
   }
 
-  const session = new Session({
-    instructorId,
-    vehicleId,
-    enrollmentId,
-    schoolId,
-    scheduledAt,
-    duration,
-    status: 'scheduled'
-  });
+  const { data: session, error: sessionError } = await supabaseAdmin
+    .from('sessions')
+    .insert({
+      instructor_id: instructorId,
+      vehicle_id: vehicleId,
+      enrollment_id: enrollmentId,
+      school_id: schoolId,
+      scheduled_at: scheduledAt,
+      duration,
+      status: 'scheduled'
+    })
+    .select()
+    .single();
 
-  await session.save();
-  return session;
+  if (sessionError) throw sessionError;
+  return formatToCamelCase(session);
 }
 
 export async function rescheduleSession(sessionId, newScheduledAt) {
-  const session = await Session.findById(sessionId);
-  if (!session) {
+  const { data: session, error: getError } = await supabaseAdmin
+    .from('sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .single();
+    
+  if (getError || !session) {
     throw new Error('Session not found');
   }
 
   const availability = await checkAvailability(
-    session.instructorId,
-    session.vehicleId,
-    session.enrollmentId,
+    session.instructor_id,
+    session.vehicle_id,
+    session.enrollment_id,
     newScheduledAt,
     session.duration
   );
 
   if (!availability.available) {
-    // If the only conflict is the session itself, that's fine
-    const isSelfConflictOnly = availability.conflicts.every(c => c._id.toString() === sessionId);
+    const isSelfConflictOnly = availability.conflicts.every(c => c._id === sessionId);
     if (!isSelfConflictOnly) {
        throw new Error('New time slot is not available due to conflicts.');
     }
   }
 
-  session.scheduledAt = newScheduledAt;
-  await session.save();
-  return session;
+  const { data: updatedSession, error: updateError } = await supabaseAdmin
+    .from('sessions')
+    .update({ scheduled_at: newScheduledAt })
+    .eq('id', sessionId)
+    .select()
+    .single();
+
+  if (updateError) throw updateError;
+  return formatToCamelCase(updatedSession);
 }
 
 export async function cancelSession(sessionId, reason) {
-  const session = await Session.findById(sessionId);
-  if (!session) {
+  const { data: updatedSession, error } = await supabaseAdmin
+    .from('sessions')
+    .update({ status: 'cancelled' })
+    .eq('id', sessionId)
+    .select()
+    .single();
+    
+  if (error || !updatedSession) {
     throw new Error('Session not found');
   }
 
-  session.status = 'cancelled';
-  await session.save();
-  return session;
+  return formatToCamelCase(updatedSession);
 }

@@ -1,10 +1,29 @@
-import Payment from '@/models/Payment';
-import Enrollment from '@/models/Enrollment';
-import connectDB from '@/lib/mongodb';
+import { supabaseAdmin } from '@/lib/supabase';
+
+function formatToCamelCase(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(v => formatToCamelCase(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+      const finalKey = camelKey === 'id' ? '_id' : camelKey;
+      result[finalKey] = formatToCamelCase(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
+}
 
 export async function checkStudentPaymentStatus(enrollmentId) {
-  await connectDB();
-  const payments = await Payment.find({ enrollmentId }).sort({ trancheNumber: 1 });
+  const { data: paymentsData, error } = await supabaseAdmin
+    .from('payments')
+    .select('*')
+    .eq('enrollment_id', enrollmentId)
+    .order('tranche_number', { ascending: true });
+    
+  if (error) throw error;
+  
+  const payments = formatToCamelCase(paymentsData || []);
   
   let totalPaid = 0;
   let totalPending = 0;
@@ -39,47 +58,46 @@ export async function checkStudentPaymentStatus(enrollmentId) {
 }
 
 export async function markOverduePayments() {
-  await connectDB();
-  const today = new Date();
+  const today = new Date().toISOString();
   
-  const result = await Payment.updateMany(
-    { 
-      status: 'pending',
-      dueDate: { $lt: today }
-    },
-    {
-      $set: { status: 'overdue' }
-    }
-  );
-  
-  return result.modifiedCount;
+  const { data, error, count } = await supabaseAdmin
+    .from('payments')
+    .update({ status: 'overdue' })
+    .eq('status', 'pending')
+    .lt('due_date', today)
+    .select('*', { count: 'exact' });
+    
+  if (error) throw error;
+  return count || 0;
 }
 
 export async function recordManualPayment(paymentId, method, transactionId) {
-  await connectDB();
-  
-  const payment = await Payment.findByIdAndUpdate(
-    paymentId,
-    {
+  const { data, error } = await supabaseAdmin
+    .from('payments')
+    .update({
       status: 'paid',
-      paidAt: new Date(),
+      paid_at: new Date().toISOString(),
       method,
-      transactionId
-    },
-    { new: true }
-  );
+      transaction_id: transactionId
+    })
+    .eq('id', paymentId)
+    .select()
+    .single();
+    
+  if (error) throw error;
+  if (!data) throw new Error('Payment not found');
   
-  if (!payment) {
-    throw new Error('Payment not found');
-  }
-  
-  return payment;
+  return formatToCamelCase(data);
 }
 
 export async function getSchoolPaymentSummary(schoolId) {
-  await connectDB();
-  
-  const payments = await Payment.find({ schoolId });
+  const { data: paymentsData, error } = await supabaseAdmin
+    .from('payments')
+    .select('*')
+    .eq('school_id', schoolId);
+    
+  if (error) throw error;
+  const payments = formatToCamelCase(paymentsData || []);
   
   let totalRevenue = 0;
   let totalCollected = 0;
@@ -109,16 +127,12 @@ export async function getSchoolPaymentSummary(schoolId) {
 }
 
 export async function getStudentLedger(enrollmentId) {
-  await connectDB();
-  
-  const payments = await Payment.find({ enrollmentId })
-    .populate({
-      path: 'enrollmentId',
-      populate: {
-        path: 'studentId'
-      }
-    })
-    .sort({ trancheNumber: 1 });
+  const { data, error } = await supabaseAdmin
+    .from('payments')
+    .select('*, enrollmentId:enrollments!enrollment_id(*, studentId:users!student_id(*))')
+    .eq('enrollment_id', enrollmentId)
+    .order('tranche_number', { ascending: true });
     
-  return payments;
+  if (error) throw error;
+  return formatToCamelCase(data || []);
 }

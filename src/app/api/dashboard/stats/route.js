@@ -21,12 +21,15 @@ export async function GET(request) {
   if (auth.error) return auth.error;
   
   const schoolId = auth.session.user.schoolId;
+  
+  // Helper: conditionally apply school filter
+  const withSchool = (query) => schoolId ? query.eq('school_id', schoolId) : query;
 
   try {
     const [{ count: totalStudents }, { count: totalInstructors }, { count: totalVehicles }] = await Promise.all([
-      supabaseAdmin.from('enrollments').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('status', 'active'),
-      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'instructor').eq('is_active', true),
-      supabaseAdmin.from('vehicles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true)
+      withSchool(supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('role', 'student').eq('is_active', true)),
+      withSchool(supabaseAdmin.from('users').select('*', { count: 'exact', head: true }).eq('role', 'instructor').eq('is_active', true)),
+      withSchool(supabaseAdmin.from('vehicles').select('*', { count: 'exact', head: true }).eq('is_active', true))
     ]);
 
     const today = new Date();
@@ -34,14 +37,13 @@ export async function GET(request) {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const { count: todaySessions } = await supabaseAdmin.from('sessions')
+    const { count: todaySessions } = await withSchool(supabaseAdmin.from('sessions')
       .select('*', { count: 'exact', head: true })
-      .eq('school_id', schoolId)
       .gte('scheduled_at', today.toISOString())
       .lt('scheduled_at', tomorrow.toISOString())
-      .neq('status', 'cancelled');
+      .neq('status', 'cancelled'));
 
-    const { data: allPaymentsData } = await supabaseAdmin.from('payments').select('*').eq('school_id', schoolId);
+    const { data: allPaymentsData } = await withSchool(supabaseAdmin.from('payments').select('*'));
     const allPayments = formatToCamelCase(allPaymentsData || []);
     
     let pendingPayments = 0;
@@ -76,15 +78,14 @@ export async function GET(request) {
 
     const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
-    const { data: recentEnrollmentsData } = await supabaseAdmin.from('enrollments')
+    const { data: recentEnrollmentsData } = await withSchool(supabaseAdmin.from('enrollments')
       .select(`
         *,
         studentId:student_id (name, email),
         packageId:package_id (name)
       `)
-      .eq('school_id', schoolId)
       .order('created_at', { ascending: false })
-      .limit(5);
+      .limit(5));
 
     const recentEnrollments = formatToCamelCase(recentEnrollmentsData || []);
 

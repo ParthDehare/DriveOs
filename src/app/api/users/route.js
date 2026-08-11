@@ -5,12 +5,14 @@ import bcrypt from "bcryptjs";
 
 const mapUser = (user) => {
   if (!user) return user;
-  const { id, school_id, is_active, ...rest } = user;
+  const { id, school_id, is_active, created_at, updated_at, ...rest } = user;
   return {
     ...rest,
     _id: id,
     schoolId: school_id,
-    isActive: is_active
+    isActive: is_active,
+    createdAt: created_at,
+    updatedAt: updated_at
   };
 };
 
@@ -25,6 +27,9 @@ export async function GET(request) {
     let query = supabaseAdmin.from('users').select('id, name, email, phone, role, school_id, avatar, is_active, created_at, updated_at');
     if (role) {
       query = query.eq('role', role);
+    }
+    if (auth.session.user.schoolId) {
+      query = query.eq('school_id', auth.session.user.schoolId);
     }
     const { data, error } = await query;
     if (error) throw error;

@@ -26,13 +26,12 @@ export default function InstructorsPage() {
       if (res.ok) {
         setInstructors(await res.json());
       } else {
-        setInstructors([
-          { id: 1, name: 'Mike Ross', email: 'mike@driveos.com', phone: '555-0201', status: 'active', sessionsWeek: 18 },
-          { id: 2, name: 'Sarah Wilson', email: 'sarah@driveos.com', phone: '555-0202', status: 'active', sessionsWeek: 22 },
-        ]);
+        toast.error('Failed to fetch instructors');
+        setInstructors([]);
       }
     } catch (e) {
-      setInstructors([{ id: 1, name: 'Mike Ross', email: 'mike@driveos.com', phone: '555-0201', status: 'active', sessionsWeek: 18 }]);
+      toast.error('An error occurred while fetching instructors');
+      setInstructors([]);
     } finally {
       setLoading(false);
     }
@@ -41,21 +40,20 @@ export default function InstructorsPage() {
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
-      await fetch('/api/users', { method: 'POST', body: JSON.stringify({...formData, role: 'instructor'}) }).catch(()=>null);
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({...formData, role: 'instructor'})
+      });
       
-      const newInstructor = {
-        id: Date.now().toString(),
-        name: formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        status: 'active',
-        sessionsWeek: 0
-      };
-      setInstructors(prev => [newInstructor, ...prev]);
+      if (!res.ok) {
+        throw new Error('Failed to add instructor');
+      }
 
       toast.success('Instructor added successfully');
       setIsModalOpen(false);
       setFormData({ name: '', email: '', phone: '', password: '' });
+      fetchInstructors();
     } catch (err) {
       toast.error('Failed to add instructor');
     }

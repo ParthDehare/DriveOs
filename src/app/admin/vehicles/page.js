@@ -26,15 +26,12 @@ export default function VehiclesPage() {
       if (res.ok) {
         setVehicles(await res.json());
       } else {
-        setVehicles([
-          { id: 1, plate: 'ABC-1234', make: 'Toyota', model: 'Yaris', year: 2020, transmission: 'Manual', fuel: 'Petrol', status: 'active' },
-          { id: 2, plate: 'XYZ-9876', make: 'Honda', model: 'Civic', year: 2022, transmission: 'Automatic', fuel: 'Hybrid', status: 'maintenance' },
-        ]);
+        toast.error('Failed to fetch vehicles');
+        setVehicles([]);
       }
     } catch (e) {
-      setVehicles([
-        { id: 1, plate: 'ABC-1234', make: 'Toyota', model: 'Yaris', year: 2020, transmission: 'Manual', fuel: 'Petrol', status: 'active' }
-      ]);
+      toast.error('Error fetching vehicles');
+      setVehicles([]);
     } finally {
       setLoading(false);
     }
@@ -43,7 +40,23 @@ export default function VehiclesPage() {
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
-      await fetch('/api/vehicles', { method: 'POST', body: JSON.stringify(formData) }).catch(()=>null);
+      const payload = {
+        licensePlate: formData.plate,
+        make: formData.make,
+        model: formData.model,
+        year: parseInt(formData.year) || 2024,
+        transmissionType: formData.transmission.toLowerCase(),
+        fuelType: formData.fuel.toLowerCase()
+      };
+
+      const res = await fetch('/api/vehicles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error('Failed to add vehicle');
+
       toast.success('Vehicle added to fleet');
       setIsModalOpen(false);
       fetchVehicles();
@@ -53,12 +66,13 @@ export default function VehiclesPage() {
   };
 
   const columns = [
-    { key: 'plate', label: 'License Plate' },
+    { key: 'licensePlate', label: 'License Plate' },
     { key: 'make', label: 'Make' },
     { key: 'model', label: 'Model' },
     { key: 'year', label: 'Year' },
-    { key: 'transmission', label: 'Transmission' },
-    { key: 'status', label: 'Status', render: (row) => <StatusBadge status={row.status} /> },
+    { key: 'transmissionType', label: 'Transmission' },
+    { key: 'fuelType', label: 'Fuel Type' },
+    { key: 'isActive', label: 'Status', render: (row) => <StatusBadge status={row.isActive ? 'active' : 'inactive'} /> },
   ];
 
   return (
