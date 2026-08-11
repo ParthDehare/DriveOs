@@ -8,57 +8,107 @@ import { useToast } from '../../../components/Toast';
 
 export default function SchedulePage() {
   const [sessions, setSessions] = useState([]);
+  
+  // Data for dropdowns
+  const [enrollments, setEnrollments] = useState([]);
+  const [instructors, setInstructors] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const toast = useToast();
 
-  const [formData, setFormData] = useState({ date: '', time: '', studentId: '', instructorId: '', vehicleId: '' });
+  const [formData, setFormData] = useState({ date: '', time: '', enrollmentId: '', instructorId: '', vehicleId: '', duration: 60 });
+
+  const fetchAllData = async () => {
+    try {
+      const [sessRes, enrollRes, instRes, vehRes] = await Promise.all([
+        fetch('/api/sessions').catch(()=>null),
+        fetch('/api/enrollments').catch(()=>null),
+        fetch('/api/users?role=instructor').catch(()=>null),
+        fetch('/api/vehicles').catch(()=>null)
+      ]);
+
+      if (sessRes?.ok) {
+        const data = await sessRes.json();
+        setSessions(data.map(s => ({
+          id: s._id,
+          date: s.scheduledAt || s.scheduled_at,
+          duration: s.duration,
+          studentName: s.enrollmentId?.studentId?.name || 'Unknown Student',
+          instructorName: s.instructorId?.name || 'Unknown Instructor',
+          vehiclePlate: s.vehicleId?.licensePlate || s.vehicleId?.license_plate || 'Unknown Vehicle',
+          status: s.status
+        })));
+      }
+
+      if (enrollRes?.ok) {
+        setEnrollments(await enrollRes.json());
+      }
+      if (instRes?.ok) {
+        setInstructors(await instRes.json());
+      }
+      if (vehRes?.ok) {
+        setVehicles(await vehRes.json());
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load schedule data');
+    }
+  };
 
   useEffect(() => {
-    // Generate some fake sessions for the current week for demo purposes
-    const today = new Date();
-    const d1 = new Date(today); d1.setHours(9, 0, 0, 0);
-    const d2 = new Date(today); d2.setHours(14, 0, 0, 0);
-    const d3 = new Date(today); d3.setDate(d3.getDate() + 1); d3.setHours(11, 0, 0, 0);
-    
-    setSessions([
-      { id: 1, date: d1.toISOString(), duration: 45, studentName: 'Alice Smith', instructorName: 'Mike R.', vehiclePlate: 'ABC-123', status: 'completed' },
-      { id: 2, date: d2.toISOString(), duration: 90, studentName: 'Bob Jones', instructorName: 'Sarah W.', vehiclePlate: 'XYZ-789', status: 'scheduled' },
-      { id: 3, date: d3.toISOString(), duration: 45, studentName: 'Charlie Brown', instructorName: 'Mike R.', vehiclePlate: 'ABC-123', status: 'scheduled' },
-    ]);
+    fetchAllData();
   }, []);
 
   const handleCreateSession = (dateObj) => {
-    // Convert to local input values
     const pad = n => n.toString().padStart(2, '0');
     const dateStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth()+1)}-${pad(dateObj.getDate())}`;
     const timeStr = `${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
     
-    setFormData({ date: dateStr, time: timeStr, studentId: '', instructorId: '', vehicleId: '' });
+    setFormData({ date: dateStr, time: timeStr, enrollmentId: '', instructorId: '', vehicleId: '', duration: 60 });
     setIsModalOpen(true);
   };
 
   const handleEditSession = (session) => {
-    toast.info(`Editing session for ${session.studentName}`);
-    // Real implementation would populate modal
+    toast.info(`Editing coming soon...`);
   };
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
-    toast.success('Session scheduled successfully');
+    setIsSubmitting(true);
     
-    // Optimistic add for demo
-    const d = new Date(`${formData.date}T${formData.time}`);
-    setSessions([...sessions, {
-      id: Date.now(),
-      date: d.toISOString(),
-      duration: 45,
-      studentName: 'New Student',
-      instructorName: 'Selected Instructor',
-      vehiclePlate: 'Selected Vehicle',
-      status: 'scheduled'
-    }]);
-    
-    setIsModalOpen(false);
+    try {
+      const scheduledAt = new Date(`${formData.date}T${formData.time}`).toISOString();
+      
+      const payload = {
+        enrollmentId: formData.enrollmentId,
+        instructorId: formData.instructorId,
+        vehicleId: formData.vehicleId,
+        scheduledAt,
+        duration: parseInt(formData.duration)
+      };
+
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Failed to book session');
+      }
+
+      toast.success('Session scheduled successfully');
+      setIsModalOpen(false);
+      fetchAllData(); // Refresh the calendar
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -84,11 +134,14 @@ export default function SchedulePage() {
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Book New Session">
         <form onSubmit={onSubmit}>
           <div className="input-group">
-            <label className="input-label">Student</label>
-            <select className="select" required value={formData.studentId} onChange={e => setFormData({...formData, studentId: e.target.value})}>
+            <label className="input-label">Student Enrollment</label>
+            <select className="select" required value={formData.enrollmentId} onChange={e => setFormData({...formData, enrollmentId: e.target.value})}>
               <option value="">Select Student...</option>
-              <option value="1">Alice Smith (Full Course - 6 left)</option>
-              <option value="2">Bob Jones (Refresher - 2 left)</option>
+              {enrollments.filter(e => e.status === 'active').map(e => (
+                <option key={e._id} value={e._id}>
+                  {e.studentId?.name || 'Unknown'} ({e.packageId?.name || 'Package'}) - {e.sessionsCompleted || 0}/{e.packageId?.totalSessions || 0} done
+                </option>
+              ))}
             </select>
           </div>
           
@@ -108,23 +161,27 @@ export default function SchedulePage() {
               <label className="input-label">Instructor</label>
               <select className="select" required value={formData.instructorId} onChange={e => setFormData({...formData, instructorId: e.target.value})}>
                 <option value="">Select Instructor...</option>
-                <option value="1">Mike R. (Available)</option>
-                <option value="2">Sarah W. (Available)</option>
+                {instructors.map(i => (
+                  <option key={i._id} value={i._id}>{i.name}</option>
+                ))}
               </select>
             </div>
             <div className="input-group">
               <label className="input-label">Vehicle</label>
               <select className="select" required value={formData.vehicleId} onChange={e => setFormData({...formData, vehicleId: e.target.value})}>
                 <option value="">Select Vehicle...</option>
-                <option value="1">ABC-123 (Toyota Yaris)</option>
-                <option value="2">XYZ-789 (Honda Civic)</option>
+                {vehicles.map(v => (
+                  <option key={v._id} value={v._id}>{v.licensePlate} ({v.make} {v.model})</option>
+                ))}
               </select>
             </div>
           </div>
           
           <div className="modal-footer" style={{ border: 'none', marginTop: 'var(--space-lg)' }}>
             <button type="button" className="btn btn-ghost" onClick={() => setIsModalOpen(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary">Confirm Booking</button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Booking...' : 'Confirm Booking'}
+            </button>
           </div>
         </form>
       </Modal>
